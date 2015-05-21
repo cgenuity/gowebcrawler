@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/PuerkitoBio/goquery"
+	"net/http"
 	"strings"
 )
 
@@ -38,10 +39,14 @@ type WebCrawler struct {
 	rootPage    *Page
 }
 
+type DoneMessage struct {
+	Error error
+}
+
 // Starts crawling from a given URL
 func (w WebCrawler) Crawl(url string) ([]byte, error) {
 	pages := make(chan *Page)
-	done := make(chan bool)
+	done := make(chan *DoneMessage)
 
 	go w.crawlWorker(nil, url, pages, done)
 
@@ -55,19 +60,23 @@ func (w WebCrawler) Crawl(url string) ([]byte, error) {
 			} else {
 				page.parent.Children[page.Url] = page
 			}
-		case <-done:
-			b, err := json.MarshalIndent(w.rootPage, "", "  ")
-			if err == nil {
-				return b, nil
-			} else {
-				return nil, fmt.Errorf("Error generating JSON Site Map: %s\n", err)
+		case doneMsg := <-done:
+			if doneMsg.Error != nil {
+				return nil, doneMsg.Error
 			}
+
+			b, err := json.MarshalIndent(w.rootPage, "", "  ")
+			if err != nil {
+				return nil, fmt.Errorf("Error generating JSON Site Map: %s", err)
+			}
+
+			return b, nil
 		}
 	}
 }
 
 // Helper function for Crawl that calls itself recursively
-func (w WebCrawler) crawlWorker(parent *Page, link string, pages chan *Page, done chan bool) {
+func (w WebCrawler) crawlWorker(parent *Page, link string, pages chan *Page, done chan *DoneMessage) {
 	// Fix links that start with "/", but not with "//"
 	if strings.HasPrefix(link, "/") && !strings.HasPrefix(link, "//") {
 		link = fmt.Sprint(w.RootUrl, link)
@@ -85,11 +94,9 @@ func (w WebCrawler) crawlWorker(parent *Page, link string, pages chan *Page, don
 	links, assets, err := w.Parser.Parse(link)
 
 	if err != nil {
-		fmt.Printf("Error parsing resource at URL [ %s ]: err\n", link, err)
-
 		if parent == nil {
 			// Finish only if there is an error with the root page
-			done <- true
+			done <- &DoneMessage{Error: err}
 		}
 		return
 	}
@@ -107,7 +114,7 @@ func (w WebCrawler) crawlWorker(parent *Page, link string, pages chan *Page, don
 		for _, l := range links {
 			w.crawlWorker(&page, l, pages, done)
 		}
-		done <- true
+		done <- &DoneMessage{}
 	}()
 
 }
@@ -139,10 +146,20 @@ func GetAttributesFromDocument(doc *goquery.Document) (links []string, assets []
 
 // Grabs links and assets from a page at a URL
 func (u UrlParser) Parse(url string) (links []string, assets []string, err error) {
-	doc, err := goquery.NewDocument(url)
+	res, err := http.Get(url)
 
 	if err != nil {
-		return nil, nil, fmt.Errorf("Error generating document from url [ %s ]: %v", url, err)
+		return nil, nil, err
+	}
+
+	if res.StatusCode != 200 {
+		return nil, nil, fmt.Errorf("Got a %d status code when getting URL [%s]", res.StatusCode, url)
+	}
+
+	doc, err := goquery.NewDocumentFromResponse(res)
+
+	if err != nil {
+		return nil, nil, err
 	}
 
 	links, assets = GetAttributesFromDocument(doc)

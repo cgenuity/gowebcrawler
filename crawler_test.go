@@ -15,6 +15,34 @@ const (
 	BasePath = "./test_data/"
 )
 
+func TestCrawlOnePageNoLinksOrAssets(t *testing.T) {
+	ts := createTestServer()
+	defer ts.Close()
+
+	crawler := getCrawler(ts.URL)
+	path := "/example.com.html"
+	j, err := crawler.Crawl(path)
+
+	assert.Nil(t, err, "Got an error from Crawl")
+	m := jsonToMap(j)
+
+	expectedUrl := fmt.Sprint(ts.URL, path)
+	assert.Equal(t, expectedUrl, m["Url"], "Did not get the expected URL")
+	assert.Len(t, m["Links"], 0, "Links length is not empty")
+	assert.Nil(t, m["Assets"], "Assets is not nil")
+}
+
+func TestCrawlRootPageNotFound(t *testing.T) {
+	ts := createTestServer()
+	defer ts.Close()
+
+	crawler := getCrawler(ts.URL)
+	path := "/404"
+	_, err := crawler.Crawl(path)
+
+	assert.Error(t, err, "Did not get an error")
+}
+
 // Test server that fetches pages from a local directory
 func createTestServer() *httptest.Server {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -47,21 +75,4 @@ func getCrawler(rootUrl string) WebCrawler {
 	}
 
 	return crawler
-}
-
-func TestCrawlOnePageNoLinksOrAssets(t *testing.T) {
-	ts := createTestServer()
-	defer ts.Close()
-
-	crawler := getCrawler(ts.URL)
-	path := "/example.com.html"
-	j, err := crawler.Crawl("/example.com.html")
-
-	assert.Nil(t, err, "Got an error from Crawl")
-	m := jsonToMap(j)
-
-	expectedUrl := fmt.Sprint(ts.URL, path)
-	assert.Equal(t, expectedUrl, m["Url"], "Did not get the expected URL")
-	assert.Len(t, m["Links"], 0, "Links length is not empty")
-	assert.Nil(t, m["Assets"], "Assets is not nil")
 }
