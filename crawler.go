@@ -38,7 +38,6 @@ type WebCrawler struct {
 	Parser     *UrlParser
 	RootUrl    string
 	FetchLimit int
-	rootPage   *Page
 }
 
 type PageMessage struct {
@@ -64,7 +63,7 @@ func (w WebCrawler) Crawl(url string) ([]byte, error) {
 	// Mark root url as requested and set the root page
 	requestedUrls := make(map[string]bool)
 	requestedUrls[url] = true
-	w.rootPage = page
+	rootPage := page
 
 	go func() {
 		c <- &PageMessage{Page: page, Url: url}
@@ -104,7 +103,7 @@ func (w WebCrawler) Crawl(url string) ([]byte, error) {
 		}
 	}
 
-	b, jErr := json.MarshalIndent(w.rootPage, "", "  ")
+	b, jErr := json.MarshalIndent(rootPage, "", "  ")
 	if jErr != nil {
 		return nil, fmt.Errorf("Error generating JSON Site Map: %s", jErr)
 	}
