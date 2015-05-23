@@ -7,8 +7,10 @@ import (
 )
 
 func main() {
-	var rootUrl = flag.String("rootUrl", "https://www.golang.org", "Root Url for crawling")
-	var rootPath = flag.String("path", "/", "Path after Root Url to start the crawl")
+	var (
+		rootUrl  = flag.String("rootUrl", "https://www.golang.org", "Root Url for crawling")
+		rootPath = flag.String("path", "/", "Path after Root Url to start the crawl")
+	)
 	flag.Parse()
 
 	parser := gowebcrawler.UrlParser{}

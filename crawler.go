@@ -51,6 +51,7 @@ func (w WebCrawler) Crawl(url string) ([]byte, error) {
 	c := make(chan *PageMessage)
 
 	// Make a slice of errors to append errors to
+	// TODO: Make use of these or get rid of them
 	var errors []error
 
 	url = getAbsoluteUrl(w.RootUrl, url)

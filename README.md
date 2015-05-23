@@ -8,3 +8,7 @@ WIP
 TODO
 ----
 * Better logging and error handling
+
+USAGE
+-----
+See example usage [here](examples/main.go)
