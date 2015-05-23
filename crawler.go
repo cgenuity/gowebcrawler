@@ -14,7 +14,8 @@ import (
 type Page struct {
 	Url      string
 	Assets   []string
-	Children map[string]*Page `json:"Links"`
+	Links    []string
+	Children map[string]*Page
 	parent   *Page
 }
 
@@ -31,95 +32,116 @@ type Crawler interface {
 
 // WebCrawler implements Crawler and generates a JSON site map from
 // a starting domain. It takes care to not crawl other domains or
-// get the same pages multiple times.
+// get the same page more than once. Also supports a FetchLimit to limit
+// the amount of total fetches made.
 type WebCrawler struct {
-	Parser      *UrlParser
-	ParsedPages map[string]*Page
-	RootUrl     string
-	rootPage    *Page
+	Parser     *UrlParser
+	RootUrl    string
+	FetchLimit int
+	rootPage   *Page
 }
 
-type DoneMessage struct {
+type PageMessage struct {
+	Page  *Page
 	Error error
+	Url   string
 }
 
 // Starts crawling from a given URL
 func (w WebCrawler) Crawl(url string) ([]byte, error) {
-	pages := make(chan *Page)
-	done := make(chan *DoneMessage)
+	c := make(chan *PageMessage)
 
-	go w.crawlWorker(nil, url, pages, done)
+	// Make a slice of errors to append errors to
+	var errors []error
 
-	for {
-		select {
-		case page := <-pages:
-			w.ParsedPages[page.Url] = page
-
-			if page.parent == nil {
-				w.rootPage = page
-			} else {
-				page.parent.Children[page.Url] = page
-			}
-		case doneMsg := <-done:
-			if doneMsg.Error != nil {
-				return nil, doneMsg.Error
-			}
-
-			b, err := json.MarshalIndent(w.rootPage, "", "  ")
-			if err != nil {
-				return nil, fmt.Errorf("Error generating JSON Site Map: %s", err)
-			}
-
-			return b, nil
-		}
-	}
-}
-
-// Helper function for Crawl that calls itself recursively
-func (w WebCrawler) crawlWorker(parent *Page, link string, pages chan *Page, done chan *DoneMessage) {
-	// Fix links that start with "/", but not with "//"
-	if strings.HasPrefix(link, "/") && !strings.HasPrefix(link, "//") {
-		link = fmt.Sprint(w.RootUrl, link)
-	}
-
-	// Link invalid or outside of allowed domain
-	if !strings.HasPrefix(link, w.RootUrl) {
-		return
-	}
-
-	if w.ParsedPages[link] != nil {
-		return
-	}
-
-	links, assets, err := w.Parser.Parse(link)
+	url = getAbsoluteUrl(w.RootUrl, url)
+	page, err := w.fetchPage(nil, url)
 
 	if err != nil {
-		if parent == nil {
-			// Finish only if there is an error with the root page
-			done <- &DoneMessage{Error: err}
+		return nil, fmt.Errorf("%v: %v", err, url)
+	}
+
+	// Mark root url as requested and set the root page
+	requestedUrls := make(map[string]bool)
+	requestedUrls[url] = true
+	w.rootPage = page
+
+	go func() {
+		c <- &PageMessage{Page: page, Url: url}
+	}()
+
+	for waiting := 1; waiting > 0; waiting-- {
+		pageMsg := <-c
+
+		if pageMsg.Error != nil {
+			errors = append(errors, fmt.Errorf("%v: %v", pageMsg.Error, pageMsg.Url))
+			continue
 		}
-		return
+
+		page := pageMsg.Page
+
+		if page.parent != nil {
+			page.parent.Children[page.Url] = page
+		}
+
+		// We've hit the fetch limit, don't send fetch any more but finish processing the ones in flight
+		if w.FetchLimit != 0 && len(requestedUrls) >= w.FetchLimit {
+			continue
+		}
+
+		// Fetch pages in goroutines without repeating fetches
+		for _, l := range page.Links {
+			l = getAbsoluteUrl(w.RootUrl, l)
+			if requestedUrls[l] != true {
+				// Mark as requested, and let the loop know to wait for one more
+				requestedUrls[l] = true
+				waiting++
+				go func(link string) {
+					result, err := w.fetchPage(page, link)
+					c <- &PageMessage{Page: result, Error: err, Url: link}
+				}(l)
+			}
+		}
+	}
+
+	b, jErr := json.MarshalIndent(w.rootPage, "", "  ")
+	if jErr != nil {
+		return nil, fmt.Errorf("Error generating JSON Site Map: %s", jErr)
+	}
+
+	return b, nil
+}
+
+func getAbsoluteUrl(rootUrl string, url string) string {
+	if strings.HasPrefix(url, "/") && !strings.HasPrefix(url, "//") {
+		return fmt.Sprint(rootUrl, url)
+	}
+	return url
+}
+
+// Fetches a page from it's parent and an absolute URL
+func (w WebCrawler) fetchPage(parent *Page, url string) (*Page, error) {
+	if !strings.HasPrefix(url, w.RootUrl) {
+		return nil, fmt.Errorf("%s", "Url invalid or outside of allowed domain")
+	}
+
+	links, assets, err := w.Parser.Parse(url)
+	if err != nil {
+		return nil, err
 	}
 
 	page := Page{
-		Url:      link,
+		Url:      url,
 		Assets:   assets,
+		Links:    links,
 		Children: make(map[string]*Page),
 		parent:   parent,
 	}
 
-	pages <- &page
-
-	go func() {
-		for _, l := range links {
-			w.crawlWorker(&page, l, pages, done)
-		}
-		done <- &DoneMessage{}
-	}()
-
+	return &page, nil
 }
 
-// Gets links and assets from a goquery Document
+// Gets slices of links and assets from a goquery.Document
 func GetAttributesFromDocument(doc *goquery.Document) (links []string, assets []string) {
 	// Links
 	links = doc.Find("a[href]").Map(func(_ int, s *goquery.Selection) string {
@@ -133,7 +155,7 @@ func GetAttributesFromDocument(doc *goquery.Document) (links []string, assets []
 		return href
 	})
 
-	//Anything with the "src" attribute (media or js)
+	//Anything with the "src" attribute (media or scripts)
 	assets = append(
 		assets,
 		doc.Find("[src]").Map(func(i int, s *goquery.Selection) string {
@@ -147,22 +169,18 @@ func GetAttributesFromDocument(doc *goquery.Document) (links []string, assets []
 // Grabs links and assets from a page at a URL
 func (u UrlParser) Parse(url string) (links []string, assets []string, err error) {
 	res, err := http.Get(url)
-
 	if err != nil {
 		return nil, nil, err
 	}
-
 	if res.StatusCode != 200 {
 		return nil, nil, fmt.Errorf("Got a %d status code when getting URL [%s]", res.StatusCode, url)
 	}
 
 	doc, err := goquery.NewDocumentFromResponse(res)
-
 	if err != nil {
 		return nil, nil, err
 	}
 
 	links, assets = GetAttributesFromDocument(doc)
-
 	return links, assets, nil
 }

@@ -14,9 +14,9 @@ func main() {
 	parser := gowebcrawler.UrlParser{}
 
 	crawler := gowebcrawler.WebCrawler{
-		Parser:      &parser,
-		ParsedPages: make(map[string]*gowebcrawler.Page),
-		RootUrl:     *rootUrl,
+		Parser:     &parser,
+		RootUrl:    *rootUrl,
+		FetchLimit: 50,
 	}
 
 	json, err := crawler.Crawl(*rootPath)
