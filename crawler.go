@@ -31,9 +31,9 @@ type Crawler interface {
 }
 
 // WebCrawler implements Crawler and generates a JSON site map from
-// a starting domain. It takes care to not crawl other domains or
+// a starting domain and path. It takes care to not crawl other domains or
 // get the same page more than once. Also supports a FetchLimit to limit
-// the amount of total fetches made.
+// total fetches made.
 type WebCrawler struct {
 	Parser     *UrlParser
 	RootUrl    string
@@ -46,7 +46,7 @@ type PageMessage struct {
 	Url   string
 }
 
-// Starts crawling from a given URL
+// Starts crawling from a given URL or path.
 func (w WebCrawler) Crawl(url string) ([]byte, error) {
 	c := make(chan *PageMessage)
 
@@ -84,12 +84,12 @@ func (w WebCrawler) Crawl(url string) ([]byte, error) {
 			page.parent.Children[page.Url] = page
 		}
 
-		// We've hit the fetch limit, don't send fetch any more but finish processing the ones in flight
+		// We've hit the fetch limit, don't fetch any more but finish processing the ones in flight
 		if w.FetchLimit != 0 && len(requestedUrls) >= w.FetchLimit {
 			continue
 		}
 
-		// Fetch pages in goroutines without repeating fetches
+		// Fetch pages in goroutines without repeating any
 		for _, l := range page.Links {
 			l = getAbsoluteUrl(w.RootUrl, l)
 			if requestedUrls[l] != true {
