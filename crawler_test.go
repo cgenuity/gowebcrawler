@@ -9,7 +9,6 @@ import (
 	"net/http/httptest"
 	"path"
 	"testing"
-	"time"
 )
 
 const (
@@ -148,8 +147,6 @@ func createTestServer() (*httptest.Server, *int) {
 	requestCount := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestCount++
-		// Sleep a millisecond to better test concurrency
-		time.Sleep(time.Millisecond)
 		body, err := ioutil.ReadFile(path.Join(BasePath, r.URL.Path))
 
 		if err != nil {
