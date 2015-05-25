@@ -55,7 +55,7 @@ func (w WebCrawler) Crawl(url string) ([]byte, error) {
 	var errors []error
 
 	url = getAbsoluteUrl(w.RootUrl, url)
-	page, err := w.fetchPage(nil, url)
+	page, err := w.fetchPage(url)
 
 	if err != nil {
 		return nil, fmt.Errorf("%v: %v", err, url)
@@ -95,9 +95,13 @@ func (w WebCrawler) Crawl(url string) ([]byte, error) {
 			if requestedUrls[l] != true {
 				// Mark as requested, and let the loop know to wait for one more
 				requestedUrls[l] = true
+
 				waiting++
 				go func(link string) {
-					result, err := w.fetchPage(page, link)
+					result, err := w.fetchPage(link)
+					if result != nil {
+						result.parent = page
+					}
 					c <- &PageMessage{Page: result, Error: err, Url: link}
 				}(l)
 			}
@@ -119,8 +123,8 @@ func getAbsoluteUrl(rootUrl string, url string) string {
 	return url
 }
 
-// Fetches a page from it's parent and an absolute URL
-func (w WebCrawler) fetchPage(parent *Page, url string) (*Page, error) {
+// Fetches a page from an absolute URL
+func (w WebCrawler) fetchPage(url string) (*Page, error) {
 	if !strings.HasPrefix(url, w.RootUrl) {
 		return nil, fmt.Errorf("%s", "Url invalid or outside of allowed domain")
 	}
@@ -135,7 +139,6 @@ func (w WebCrawler) fetchPage(parent *Page, url string) (*Page, error) {
 		Assets:   assets,
 		Links:    links,
 		Children: make(map[string]*Page),
-		parent:   parent,
 	}
 
 	return &page, nil
