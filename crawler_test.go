@@ -142,6 +142,20 @@ func TestCrawlRespectsFetchLimit(t *testing.T) {
 	assert.Equal(t, 2, *requestCount, "Didn't make the right amount of requests")
 }
 
+func TestCrawlDoesntIncludeInvalidLinks(t *testing.T) {
+	ts, _ := createTestServer()
+	defer ts.Close()
+
+	crawler := getCrawler(ts.URL)
+	path := "/invalid_links.html"
+	j, err := crawler.Crawl(path)
+	m := jsonToMap(j)
+
+	assert.Nil(t, err, "Got an error from Crawl")
+
+	assert.Nil(t, m["Links"], "Found links when it shouldn't have.")
+}
+
 // Test server that fetches pages from a local directory
 func createTestServer() (*httptest.Server, *int) {
 	requestCount := 0

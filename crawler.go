@@ -146,8 +146,9 @@ func (w WebCrawler) fetchPage(url string) (*Page, error) {
 
 // Gets slices of links and assets from a goquery.Document
 func GetAttributesFromDocument(doc *goquery.Document) (links []string, assets []string) {
-	// Links
-	links = doc.Find("a[href]").Map(func(_ int, s *goquery.Selection) string {
+	// Links without "#" or empty links
+	links = doc.Find("a[href]").Not("a[href='#']").Not("a[href='']").
+		Map(func(_ int, s *goquery.Selection) string {
 		href, _ := s.Attr("href")
 		return href
 	})
